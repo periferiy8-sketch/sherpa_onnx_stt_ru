@@ -28,7 +28,7 @@ if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
     print("✅ Model ready at " + MODEL_DIR)
 
 # Загружаем модель один раз при старте
-recognizer = sherpa_onnx.OfflineRecognizer.from_zipformer(
+recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
     model=MODEL_DIR,
     tokens=os.path.join(MODEL_DIR, "tokens.txt"),
     num_threads=1,
