@@ -20,20 +20,36 @@ if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
     with open("/tmp/model.tar.bz2", "wb") as f:
         f.write(requests.get(MODEL_URL).content)
     os.system("tar -xjf /tmp/model.tar.bz2 -C " + MODEL_DIR)
-    os.rename(os.path.join(MODEL_DIR, "sherpa-onnx-zipformer-ru-2024-09-18"), os.path.join(MODEL_DIR, "temp"))
-    os.system("mv " + os.path.join(MODEL_DIR, "temp/*") + " " + MODEL_DIR)
-    os.system("rm -rf " + os.path.join(MODEL_DIR, "temp") + " /tmp/model.tar.bz2")
+    # Перемещаем содержимое в корень MODEL_DIR
+    inner_dir = os.path.join(MODEL_DIR, "sherpa-onnx-zipformer-ru-2024-09-18")
+    for item in os.listdir(inner_dir):
+        os.rename(os.path.join(inner_dir, item), os.path.join(MODEL_DIR, item))
+    os.rmdir(inner_dir)
+    os.remove("/tmp/model.tar.bz2")
     with open(os.path.join(MODEL_DIR, "model_ready"), "w") as f:
         f.write("done")
     print("✅ Model ready at " + MODEL_DIR)
 
-# Загружаем модель один раз при старте
-recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-    model=MODEL_DIR,
-    tokens=os.path.join(MODEL_DIR, "tokens.txt"),
+# Создаём конфигурацию
+config = sherpa_onnx.OfflineRecognizerConfig(
+    model=sherpa_onnx.OfflineTransducerModelConfig(
+        zipformer=sherpa_onnx.OfflineZipformerModelConfig(
+            model=os.path.join(MODEL_DIR, "model.onnx"),
+            tokens=os.path.join(MODEL_DIR, "tokens.txt"),
+        )
+    ),
+    decoding_method="greedy_search",
+    max_active_paths=4,
+    enable_endpoint=False,
+    rule1_min_trailing_silence=2.4,
+    rule2_min_trailing_silence=1.2,
+    rule3_min_utterance_length=300,
     num_threads=1,
     debug=False,
 )
+
+# Загружаем распознаватель
+recognizer = sherpa_onnx.OfflineRecognizer(config)
 
 print("✅ Sherpa-ONNX STT ready!")
 
@@ -53,29 +69,31 @@ def health():
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
-    if 'audio' not in request.files:
-        return jsonify({"error": "No audio file"}), 400
-
-    audio_file = request.files['audio']
-    if not audio_file.filename.lower().endswith('.wav'):
-        return jsonify({"error": "Only WAV files supported"}), 400
-
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        audio_file.save(tmp.name)
-        tmp_path = tmp.name
+    data = request.get_json()
+    if not data or 'audioData' not in data:
+        return jsonify({"error": "No audioData in JSON"}), 400
 
     try:
-        start_time = time.time()
+        # Преобразуем список байтов в WAV
+        audio_bytes = bytes(data['audioData'])
+        
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            with wave.open(tmp.name, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(16000)
+                wf.writeframes(audio_bytes)
+            tmp_path = tmp.name
+
         samples, sample_rate = read_wav(tmp_path)
         stream = recognizer.create_stream()
         stream.accept_waveform(sample_rate, samples)
         recognizer.decode_stream(stream)
         text = stream.result.text.strip()
-        elapsed = time.time() - start_time
-        print(f"⏱️  Transcribed in {elapsed:.2f} sec: '{text}'")
+        os.unlink(tmp_path)
         return jsonify({"text": text})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
