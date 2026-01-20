@@ -29,27 +29,18 @@ if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
         f.write("done")
     print("✅ Model ready.")
 
-# === Конфигурация распознавателя ===
-config = sherpa_onnx.OfflineRecognizerConfig(
-    feat_config=sherpa_onnx.FeatureConfig(
-        sample_rate=16000,
-        feature_dim=80
-    ),
-    model_config=sherpa_onnx.OfflineModelConfig(
-        transducer=sherpa_onnx.OfflineTransducerModelConfig(
-            encoder=os.path.join(MODEL_DIR, "encoder.onnx"),
-            decoder=os.path.join(MODEL_DIR, "decoder.onnx"),
-            joiner=os.path.join(MODEL_DIR, "joiner.onnx"),
-        ),
-        tokens=os.path.join(MODEL_DIR, "tokens.txt"),
-        num_threads=1,
-        debug=False,
-    ),
+# === Инициализация распознавателя ===
+recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
+    encoder=os.path.join(MODEL_DIR, "encoder.onnx"),
+    decoder=os.path.join(MODEL_DIR, "decoder.onnx"),
+    joiner=os.path.join(MODEL_DIR, "joiner.onnx"),
+    tokens=os.path.join(MODEL_DIR, "tokens.txt"),
+    num_threads=1,
+    sample_rate=16000,
+    feature_dim=80,
     decoding_method="greedy_search",
-    max_active_paths=4,
+    debug=False,
 )
-
-recognizer = sherpa_onnx.OfflineRecognizer(config)
 print("✅ Sherpa-ONNX STT initialized.")
 
 # === Вспомогательные функции ===
