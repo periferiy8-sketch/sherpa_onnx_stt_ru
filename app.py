@@ -72,7 +72,7 @@ def health():
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
     data = request.get_json()
-    if not data or 'audioData' not in 
+    if not data or 'audioData' not in data:
         return jsonify({"error": "Missing 'audioData' in JSON"}), 400
 
     try:
