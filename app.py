@@ -4,7 +4,6 @@ import wave
 import numpy as np
 import os
 import tempfile
-import time
 import requests
 
 app = Flask(__name__)
@@ -13,14 +12,13 @@ app = Flask(__name__)
 MODEL_DIR = "./model"
 MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2"
 
-# Скачиваем модель при первом запуске
+# Скачиваем модель при первом запуске, если не готова
 if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
     print("📥 Downloading Sherpa-ONNX Russian model...")
     os.makedirs(MODEL_DIR, exist_ok=True)
     with open("/tmp/model.tar.bz2", "wb") as f:
         f.write(requests.get(MODEL_URL).content)
     os.system(f"tar -xjf /tmp/model.tar.bz2 -C {MODEL_DIR}")
-    # Перемещаем содержимое из подпапки в корень MODEL_DIR
     inner_path = os.path.join(MODEL_DIR, "sherpa-onnx-zipformer-ru-2024-09-18")
     if os.path.exists(inner_path):
         for item in os.listdir(inner_path):
