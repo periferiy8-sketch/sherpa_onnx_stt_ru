@@ -5,16 +5,29 @@ import numpy as np
 import os
 import tempfile
 import time
+import requests
 
 app = Flask(__name__)
 
 # Путь к модели
 MODEL_DIR = "./model"
+MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2"
+
+# Скачиваем модель, если её нет
+if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
+    print("📥 Downloading Sherpa-ONNX Russian model...")
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    with open("/tmp/model.tar.bz2", "wb") as f:
+        f.write(requests.get(MODEL_URL).content)
+    os.system("tar -xjf /tmp/model.tar.bz2 -C " + MODEL_DIR)
+    os.rename(os.path.join(MODEL_DIR, "sherpa-onnx-zipformer-ru-2024-09-18"), os.path.join(MODEL_DIR, "temp"))
+    os.system("mv " + os.path.join(MODEL_DIR, "temp/*") + " " + MODEL_DIR)
+    os.system("rm -rf " + os.path.join(MODEL_DIR, "temp") + " /tmp/model.tar.bz2")
+    with open(os.path.join(MODEL_DIR, "model_ready"), "w") as f:
+        f.write("done")
+    print("✅ Model ready at " + MODEL_DIR)
 
 # Загружаем модель один раз при старте
-if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
-    raise RuntimeError("Model not found! Run setup_model.sh first.")
-
 recognizer = sherpa_onnx.OfflineRecognizer.from_zipformer(
     model=MODEL_DIR,
     tokens=os.path.join(MODEL_DIR, "tokens.txt"),
