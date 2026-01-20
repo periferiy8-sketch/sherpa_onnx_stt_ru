@@ -9,28 +9,29 @@ import requests
 
 app = Flask(__name__)
 
-# Путь к модели
+# === Настройка модели ===
 MODEL_DIR = "./model"
 MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2"
 
-# Скачиваем модель, если её нет
+# Скачиваем модель при первом запуске
 if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
     print("📥 Downloading Sherpa-ONNX Russian model...")
     os.makedirs(MODEL_DIR, exist_ok=True)
     with open("/tmp/model.tar.bz2", "wb") as f:
         f.write(requests.get(MODEL_URL).content)
-    os.system("tar -xjf /tmp/model.tar.bz2 -C " + MODEL_DIR)
-    # Перемещаем содержимое в корень MODEL_DIR
-    inner_dir = os.path.join(MODEL_DIR, "sherpa-onnx-zipformer-ru-2024-09-18")
-    for item in os.listdir(inner_dir):
-        os.rename(os.path.join(inner_dir, item), os.path.join(MODEL_DIR, item))
-    os.rmdir(inner_dir)
+    os.system(f"tar -xjf /tmp/model.tar.bz2 -C {MODEL_DIR}")
+    # Перемещаем содержимое из подпапки в корень MODEL_DIR
+    inner_path = os.path.join(MODEL_DIR, "sherpa-onnx-zipformer-ru-2024-09-18")
+    if os.path.exists(inner_path):
+        for item in os.listdir(inner_path):
+            os.rename(os.path.join(inner_path, item), os.path.join(MODEL_DIR, item))
+        os.rmdir(inner_path)
     os.remove("/tmp/model.tar.bz2")
     with open(os.path.join(MODEL_DIR, "model_ready"), "w") as f:
         f.write("done")
-    print("✅ Model ready at " + MODEL_DIR)
+    print("✅ Model ready.")
 
-# Создаём конфигурацию для zipformer
+# === Конфигурация распознавателя ===
 config = sherpa_onnx.OfflineRecognizerConfig(
     feat_config=sherpa_onnx.FeatureConfig(
         sample_rate=16000,
@@ -50,13 +51,11 @@ config = sherpa_onnx.OfflineRecognizerConfig(
     max_active_paths=4,
 )
 
-# Загружаем распознаватель
 recognizer = sherpa_onnx.OfflineRecognizer(config)
+print("✅ Sherpa-ONNX STT initialized.")
 
-print("✅ Sherpa-ONNX STT ready!")
-
+# === Вспомогательные функции ===
 def read_wav(file_path):
-    """Читает WAV, возвращает (samples, sample_rate)"""
     with wave.open(file_path, "rb") as wf:
         assert wf.getnchannels() == 1, "Only mono supported"
         assert wf.getsampwidth() == 2, "Only 16-bit supported"
@@ -65,6 +64,7 @@ def read_wav(file_path):
         samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
     return samples, sample_rate
 
+# === Эндпоинты ===
 @app.route('/health')
 def health():
     return "OK", 200
@@ -73,12 +73,10 @@ def health():
 def transcribe():
     data = request.get_json()
     if not data or 'audioData' not in 
-        return jsonify({"error": "No audioData in JSON"}), 400
+        return jsonify({"error": "Missing 'audioData' in JSON"}), 400
 
     try:
-        # Преобразуем список байтов в WAV
         audio_bytes = bytes(data['audioData'])
-        
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             with wave.open(tmp.name, 'wb') as wf:
                 wf.setnchannels(1)
@@ -92,10 +90,12 @@ def transcribe():
         stream.accept_waveform(sample_rate, samples)
         recognizer.decode_stream(stream)
         text = stream.result.text.strip()
+
         os.unlink(tmp_path)
         return jsonify({"text": text})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# === Запуск ===
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
