@@ -30,22 +30,24 @@ if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
         f.write("done")
     print("✅ Model ready at " + MODEL_DIR)
 
-# Создаём конфигурацию
+# Создаём конфигурацию для zipformer
 config = sherpa_onnx.OfflineRecognizerConfig(
-    model=sherpa_onnx.OfflineTransducerModelConfig(
-        zipformer=sherpa_onnx.OfflineZipformerModelConfig(
-            model=os.path.join(MODEL_DIR, "model.onnx"),
-            tokens=os.path.join(MODEL_DIR, "tokens.txt"),
-        )
+    feat_config=sherpa_onnx.FeatureConfig(
+        sample_rate=16000,
+        feature_dim=80
+    ),
+    model_config=sherpa_onnx.OfflineModelConfig(
+        transducer=sherpa_onnx.OfflineTransducerModelConfig(
+            encoder=os.path.join(MODEL_DIR, "encoder.onnx"),
+            decoder=os.path.join(MODEL_DIR, "decoder.onnx"),
+            joiner=os.path.join(MODEL_DIR, "joiner.onnx"),
+        ),
+        tokens=os.path.join(MODEL_DIR, "tokens.txt"),
+        num_threads=1,
+        debug=False,
     ),
     decoding_method="greedy_search",
     max_active_paths=4,
-    enable_endpoint=False,
-    rule1_min_trailing_silence=2.4,
-    rule2_min_trailing_silence=1.2,
-    rule3_min_utterance_length=300,
-    num_threads=1,
-    debug=False,
 )
 
 # Загружаем распознаватель
@@ -70,7 +72,7 @@ def health():
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
     data = request.get_json()
-    if not data or 'audioData' not in data:
+    if not data or 'audioData' not in 
         return jsonify({"error": "No audioData in JSON"}), 400
 
     try:
