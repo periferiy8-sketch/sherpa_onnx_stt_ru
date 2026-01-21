@@ -7,91 +7,96 @@ import os
 import tempfile
 import requests
 
-app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+print("🚀 Starting STT server from:", __file__)
 
-# === Настройка модели ===
+app = Flask(__name__)
+CORS(app)
+
+# === MODEL SETUP ===
 MODEL_DIR = "./model"
 MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2"
 
-# Скачиваем модель при первом запуске, если не готова
 if not os.path.exists(os.path.join(MODEL_DIR, "model_ready")):
-    print("📥 Downloading Sherpa-ONNX Russian model...")
+    print("📥 Downloading Sherpa-ONNX model...")
     os.makedirs(MODEL_DIR, exist_ok=True)
-    with open("/tmp/model.tar.bz2", "wb") as f:
-        f.write(requests.get(MODEL_URL).content)
-    os.system(f"tar -xjf /tmp/model.tar.bz2 -C {MODEL_DIR}")
-    inner_path = os.path.join(MODEL_DIR, "sherpa-onnx-zipformer-ru-2024-09-18")
-    if os.path.exists(inner_path):
-        for item in os.listdir(inner_path):
-            os.rename(os.path.join(inner_path, item), os.path.join(MODEL_DIR, item))
-        os.rmdir(inner_path)
-    os.remove("/tmp/model.tar.bz2")
-    with open(os.path.join(MODEL_DIR, "model_ready"), "w") as f:
-        f.write("done")
-    print("✅ Model ready.")
 
-# === Инициализация распознавателя ===
+    archive_path = "/tmp/model.tar.bz2"
+    with open(archive_path, "wb") as f:
+        f.write(requests.get(MODEL_URL).content)
+
+    os.system(f"tar -xjf {archive_path} -C {MODEL_DIR}")
+
+    inner = os.path.join(MODEL_DIR, "sherpa-onnx-zipformer-ru-2024-09-18")
+    if os.path.exists(inner):
+        for f in os.listdir(inner):
+            os.rename(os.path.join(inner, f), os.path.join(MODEL_DIR, f))
+        os.rmdir(inner)
+
+    os.remove(archive_path)
+    open(os.path.join(MODEL_DIR, "model_ready"), "w").close()
+    print("✅ Model ready")
+
+# === RECOGNIZER ===
 recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-    encoder=os.path.join(MODEL_DIR, "encoder.onnx"),
-    decoder=os.path.join(MODEL_DIR, "decoder.onnx"),
-    joiner=os.path.join(MODEL_DIR, "joiner.onnx"),
-    tokens=os.path.join(MODEL_DIR, "tokens.txt"),
+    encoder=f"{MODEL_DIR}/encoder.onnx",
+    decoder=f"{MODEL_DIR}/decoder.onnx",
+    joiner=f"{MODEL_DIR}/joiner.onnx",
+    tokens=f"{MODEL_DIR}/tokens.txt",
     num_threads=1,
     sample_rate=16000,
     feature_dim=80,
     decoding_method="greedy_search",
-    debug=False,
 )
-print("✅ Sherpa-ONNX STT initialized.")
 
-# === Вспомогательные функции ===
-def read_wav(file_path):
-    with wave.open(file_path, "rb") as wf:
-        assert wf.getnchannels() == 1, "Only mono supported"
-        assert wf.getsampwidth() == 2, "Only 16-bit supported"
-        sample_rate = wf.getframerate()
-        frames = wf.readframes(-1)
-        samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-    return samples, sample_rate
+print("✅ Sherpa-ONNX initialized")
 
-# === Эндпоинты ===
-@app.route('/')
+# === UTILS ===
+def read_wav(path):
+    with wave.open(path, "rb") as wf:
+        samples = np.frombuffer(wf.readframes(-1), dtype=np.int16).astype(np.float32)
+        samples /= 32768.0
+        return samples, wf.getframerate()
+
+# === ROUTES ===
+@app.route("/", methods=["GET"])
 def root():
-    return jsonify({"status": "Server is running. Use /health for check or /transcribe for STT."}), 200
+    return jsonify({
+        "status": "OK",
+        "endpoints": {
+            "health": "/health",
+            "transcribe": "/transcribe (POST)"
+        }
+    })
 
-@app.route('/health')
+@app.route("/health", methods=["GET"])
 def health():
     return "OK", 200
 
-@app.route('/transcribe', methods=['POST'])
+@app.route("/transcribe", methods=["POST"])
 def transcribe():
-    data = request.get_json()
-    if not data or 'audioData' not in data:
-        return jsonify({"error": "Missing 'audioData' in JSON"}), 400
+    data = request.get_json(force=True)
+    if "audioData" not in data:
+        return jsonify({"error": "audioData missing"}), 400
 
-    try:
-        audio_bytes = bytes(data['audioData'])
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            with wave.open(tmp.name, 'wb') as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(16000)
-                wf.writeframes(audio_bytes)
-            tmp_path = tmp.name
+    audio_bytes = bytes(data["audioData"])
 
-        samples, sample_rate = read_wav(tmp_path)
-        stream = recognizer.create_stream()
-        stream.accept_waveform(sample_rate, samples)
-        recognizer.decode_stream(stream)
-        text = stream.result.text.strip()
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        with wave.open(tmp.name, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(audio_bytes)
+        path = tmp.name
 
-        os.unlink(tmp_path)
-        return jsonify({"text": text})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    samples, sr = read_wav(path)
+    os.remove(path)
 
-# === Запуск ===
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))  # Динамический порт для совместимости с Replit
-    app.run(host='0.0.0.0', port=port)
+    stream = recognizer.create_stream()
+    stream.accept_waveform(sr, samples)
+    recognizer.decode_stream(stream)
+
+    return jsonify({"text": stream.result.text.strip()})
+
+# === START ===
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
