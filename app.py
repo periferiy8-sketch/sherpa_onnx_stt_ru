@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import sherpa_onnx
 import wave
 import numpy as np
@@ -7,6 +8,7 @@ import tempfile
 import requests
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # === Настройка модели ===
 MODEL_DIR = "./model"
@@ -87,4 +89,4 @@ def transcribe():
 
 # === Запуск ===
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=5000)
