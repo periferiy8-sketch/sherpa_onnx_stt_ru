@@ -56,6 +56,10 @@ def read_wav(file_path):
     return samples, sample_rate
 
 # === Эндпоинты ===
+@app.route('/')
+def root():
+    return jsonify({"status": "Server is running. Use /health for check or /transcribe for STT."}), 200
+
 @app.route('/health')
 def health():
     return "OK", 200
@@ -89,5 +93,5 @@ def transcribe():
 
 # === Запуск ===
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))  # Use Replit's dynamic PORT or fallback to 8080
+    port = int(os.environ.get('PORT', 8080))  # Динамический порт для совместимости с Replit
     app.run(host='0.0.0.0', port=port)
