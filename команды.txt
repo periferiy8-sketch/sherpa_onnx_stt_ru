@@ -1,0 +1,2 @@
+Build Command: chmod +x setup_model.sh && ./setup_model.sh
+Run Command: python app.py
